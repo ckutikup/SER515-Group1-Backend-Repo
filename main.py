@@ -1,4 +1,8 @@
-from fastapi import FastAPI, Depends
+from dotenv import load_dotenv
+load_dotenv()   # reads SER515-Group1-Backend-Repo/.env
+
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from database import SessionLocal
@@ -6,7 +10,8 @@ import models
 import schemas
 from passlib.context import CryptContext
 from schemas import UserCreate, UserResponse
-
+import auth, schemas, models
+from auth import create_access_token
 
 app = FastAPI(title="Requirements Engineering Tool Prototype")
 
@@ -68,4 +73,22 @@ def create_user(request: UserCreate, db: Session = Depends(get_db)):
     db.refresh(user)
     return user
 
+
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+@app.post("/token", response_model=schemas.Token)
+def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
+    user = db.query(models.User).filter(models.User.email == form_data.username).first()
+    if not user or not pwd_context.verify(form_data.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = auth.create_access_token(user.email)
+    return {"access_token": token, "token_type": "bearer"}
 

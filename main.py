@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from database import SessionLocal
+from typing import Optional
 import models
 import schemas
 
@@ -34,7 +35,7 @@ print("Test Github Connection")
 
 
 @app.get("/stories", response_model=list[schemas.StoryResponse])
-def get_stories(assignee: str | None = None,db: Session = Depends(get_db)):
+def get_stories(assignee: Optional[str] = None,db: Session = Depends(get_db)):
     if assignee:
         return db.query(models.UserStory).filter(models.UserStory.assignee == assignee).all()
     return db.query(models.UserStory).all()

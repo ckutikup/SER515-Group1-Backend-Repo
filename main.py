@@ -106,14 +106,15 @@ def get_current_user(
 ):
     creds = verify_access_token(token)
     email = creds.get("sub")
-    if not email:
-        raise HTTPException(401, "Invalid or expired token")
     user = db.query(models.User).filter(models.User.email == email).first()
     if not user:
-        raise HTTPException(401, "User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
     return user
 
-@app.get("/me", response_model=schemas.UserResponse)
-def read_current_user(current_user: models.User = Depends(get_current_user)):
+@app.get("/profile", response_model=schemas.UserResponse)
+def get_user_profile(current_user: models.User = Depends(get_current_user)):
     return current_user
 

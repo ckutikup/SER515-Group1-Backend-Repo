@@ -16,6 +16,8 @@ from auth import create_access_token, verify_access_token
 
 app = FastAPI(title="Requirements Engineering Tool Prototype")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+
 
 origins = [
     "http://localhost:5173",
@@ -30,7 +32,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 def get_db():
     db = SessionLocal()
     try:
@@ -38,9 +39,7 @@ def get_db():
     finally:
         db.close()
 
-
 print("Test Github Connection")
-
 
 @app.get("/stories", response_model=list[schemas.StoryResponse])
 def get_stories(assignee: Optional[str] = None,db: Session = Depends(get_db)):
@@ -65,32 +64,36 @@ def add_story(request: schemas.StoryCreate, db: Session = Depends(get_db)):
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-@app.post("/users", response_model=UserResponse)
-def create_user(request: UserCreate, db: Session = Depends(get_db)):
+@app.post("/users", response_model=schemas.UserResponse)
+def create_user(request: schemas.UserCreate, db: Session = Depends(get_db)):
+    # Split full name into first and last
+    name_parts = request.name.strip().split(maxsplit=1)
+    first_name = name_parts[0]
+    last_name = name_parts[1] if len(name_parts) > 1 else ""
+    
     hashed = pwd_context.hash(request.password)
-    user = models.User(email=request.email, password_hash=hashed)
+    user = models.User(
+        username=request.username,
+        first_name=first_name,
+        last_name=last_name,
+        email=request.email,
+        password_hash=hashed
+    )
     db.add(user)
     db.commit()
     db.refresh(user)
     return user
 
 
-pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-@app.post("/token", response_model=schemas.Token)
-def login_for_access_token(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db),
-):
-    user = db.query(models.User).filter(models.User.email == form_data.username).first()
-    if not user or not pwd_context.verify(form_data.password, user.password_hash):
+@app.post("/login", response_model=schemas.Token)
+def login_json(request: schemas.LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter_by(email=request.email).first()
+    if not user or not pwd_context.verify(request.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-            headers={"WWW-Authenticate": "Bearer"},
+            detail="Invalid email or password"
         )
-    token = auth.create_access_token(user.email)
+    token = auth.create_access_token(sub=user.email)
     return {"access_token": token, "token_type": "bearer"}
 
 @app.post("/logout")

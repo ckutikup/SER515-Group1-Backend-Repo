@@ -1,9 +1,9 @@
 import auth
+import schemas
+import models
 from auth import create_access_token, verify_access_token
 from schemas import UserCreate, UserResponse
 from passlib.context import CryptContext
-import schemas
-import models
 from typing import Optional
 from database import SessionLocal
 from sqlalchemy import or_
@@ -39,6 +39,21 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def get_current_user(
+        token: str = Depends(oauth2_scheme),
+        db: Session = Depends(get_db)
+):
+    creds = verify_access_token(token)
+    email = creds.get("sub")
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    return user
 
 
 @app.get("/stories", response_model=list[schemas.StoryResponse])
@@ -146,21 +161,6 @@ def logout():
     Dummy logout endpoint – client should discard its JWT.
     """
     return {"message": "Successfully logged out"}
-
-
-def get_current_user(
-        token: str = Depends(oauth2_scheme),
-        db: Session = Depends(get_db)
-):
-    creds = verify_access_token(token)
-    email = creds.get("sub")
-    user = db.query(models.User).filter(models.User.email == email).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-    return user
 
 
 @app.get("/profile", response_model=schemas.UserResponse)

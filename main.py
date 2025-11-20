@@ -39,21 +39,6 @@ def get_db():
     finally:
         db.close()
 
-def get_current_user(
-        token: str = Depends(oauth2_scheme),
-        db: Session = Depends(get_db)
-):
-    creds = verify_access_token(token)
-    email = creds.get("sub")
-    user = db.query(models.User).filter(models.User.email == email).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-    return user
-print("Test Github Connection")
-
 @app.get("/stories", response_model=list[schemas.StoryResponse])
 def get_stories(
     assignee: Optional[str] = None,
@@ -140,6 +125,21 @@ def logout():
     Dummy logout endpoint – client should discard its JWT.
     """
     return {"message": "Successfully logged out"}
+ 
+
+def get_current_user(
+        token: str = Depends(oauth2_scheme),
+        db: Session = Depends(get_db)
+):
+    creds = verify_access_token(token)
+    email = creds.get("sub")
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    return user
 
 @app.get("/profile", response_model=schemas.UserResponse)
 def get_user_profile(current_user: models.User = Depends(get_current_user)):

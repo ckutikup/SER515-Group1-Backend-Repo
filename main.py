@@ -1,18 +1,19 @@
+import auth
+import schemas
+import models
+from auth import create_access_token, verify_access_token
+from schemas import UserCreate, UserResponse
+from passlib.context import CryptContext
+from typing import Optional
+from database import SessionLocal
+from sqlalchemy import or_
+from sqlalchemy.orm import Session
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+from fastapi import FastAPI, Depends, HTTPException, status
+from datetime import date, datetime
 from dotenv import load_dotenv
 load_dotenv()
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from database import SessionLocal
-from typing import Optional
-from datetime import date, datetime
-import models
-import schemas
-from passlib.context import CryptContext
-from schemas import UserCreate, UserResponse
-import auth, schemas, models
-from auth import create_access_token, verify_access_token
 
 app = FastAPI(title="Requirements Engineering Tool Prototype")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
@@ -39,6 +40,22 @@ def get_db():
     finally:
         db.close()
 
+
+def get_current_user(
+        token: str = Depends(oauth2_scheme),
+        db: Session = Depends(get_db)
+):
+    creds = verify_access_token(token)
+    email = creds.get("sub")
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    return user
+
+
 @app.get("/stories", response_model=list[schemas.StoryResponse])
 def get_stories(
     assignee: Optional[str] = None,
@@ -50,30 +67,31 @@ def get_stories(
     db: Session = Depends(get_db)
 ):
     query = db.query(models.UserStory)
-    
+
     if assignee:
         query = query.filter(models.UserStory.assignee == assignee)
-    
+
     if status:
         query = query.filter(models.UserStory.status == status)
 
     if tags:
         query = query.filter(models.UserStory.tags.contains(tags))
-    
+
     if created_by:
         query = query.filter(models.UserStory.created_by == created_by)
 
     if start_date:
         query = query.filter(models.UserStory.created_on >= start_date)
-    
+
     if end_date:
         end_datetime = datetime.combine(end_date, datetime.max.time())
         query = query.filter(models.UserStory.created_on <= end_datetime)
-    
+
     return query.all()
 
+
 @app.post("/stories")
-def add_story(request: schemas.StoryCreate,current_user: models.User = Depends(get_current_user),db: Session = Depends(get_db)):
+def add_story(request: schemas.StoryCreate, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     new_story = models.UserStory(
         title=request.title,
         description=request.description,
@@ -86,6 +104,21 @@ def add_story(request: schemas.StoryCreate,current_user: models.User = Depends(g
     db.commit()
     db.refresh(new_story)
     return {"message": "Story added successfully", "story": new_story}
+
+# Endpoint for filtering ideas
+
+
+@app.get("/filter", response_model=list[schemas.StoryResponse])
+def filter_stories(search: Optional[str] = None, db: Session = Depends(get_db)):
+    if not search:
+        return db.query(models.UserStory).all()
+
+    if search.isdigit():
+        story_id = int(search)
+        return db.query(models.UserStory).filter(models.UserStory.id == story_id).all()
+    else:
+        return db.query(models.UserStory).filter(models.UserStory.title.icontains(search)).all()
+
 
 @app.post("/users", response_model=schemas.UserResponse)
 def create_user(request: schemas.UserCreate, db: Session = Depends(get_db)):
@@ -125,21 +158,7 @@ def logout():
     Dummy logout endpoint – client should discard its JWT.
     """
     return {"message": "Successfully logged out"}
- 
 
-def get_current_user(
-        token: str = Depends(oauth2_scheme),
-        db: Session = Depends(get_db)
-):
-    creds = verify_access_token(token)
-    email = creds.get("sub")
-    user = db.query(models.User).filter(models.User.email == email).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-    return user
 
 @app.get("/profile", response_model=schemas.UserResponse)
 def get_user_profile(current_user: models.User = Depends(get_current_user)):

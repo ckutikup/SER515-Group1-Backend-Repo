@@ -151,6 +151,16 @@ def add_story(request: schemas.StoryCreate, current_user: models.User = Depends(
     else:
         tags_value = None
 
+    # Initialize activity with story creation entry
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    initial_activity = [
+        {
+            "timestamp": timestamp,
+            "user": current_user.username,
+            "action": f"[{timestamp}] {current_user.username}: Created story"
+        }
+    ]
+
     new_story = models.UserStory(
         title=request.title,
         description=request.description,
@@ -159,7 +169,7 @@ def add_story(request: schemas.StoryCreate, current_user: models.User = Depends(
         tags=tags_value,
         acceptance_criteria=request.acceptance_criteria or [],
         story_points=request.story_points,
-        activity=request.activity or [],
+        activity=initial_activity,
         created_by=current_user.username
     )
     db.add(new_story)
@@ -178,23 +188,76 @@ def update_story(story_id: int, request: schemas.StoryCreate, current_user: mode
             detail="Story not found"
         )
     
-    # Update fields
-    story.title = request.title
-    story.description = request.description
-    story.assignee = request.assignee
-    story.status = request.status
+    # Initialize activity list if it doesn't exist
+    if not story.activity:
+        story.activity = []
+    
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    username = current_user.username
+    
+    # Track title changes
+    if story.title != request.title:
+        activity_entry = f"[{timestamp}] {username}: Changed title from '{story.title}' to '{request.title}'"
+        story.activity.append({"timestamp": timestamp, "user": username, "action": activity_entry})
+        story.title = request.title
+    
+    # Track description changes
+    if story.description != request.description:
+        activity_entry = f"[{timestamp}] {username}: Updated description"
+        story.activity.append({"timestamp": timestamp, "user": username, "action": activity_entry})
+        story.description = request.description
+    
+    # Track assignee changes
+    if story.assignee != request.assignee:
+        activity_entry = f"[{timestamp}] {username}: Changed assignee from '{story.assignee}' to '{request.assignee}'"
+        story.activity.append({"timestamp": timestamp, "user": username, "action": activity_entry})
+        story.assignee = request.assignee
+    
+    # Track status changes
+    if story.status != request.status:
+        activity_entry = f"[{timestamp}] {username}: Changed status from '{story.status}' to '{request.status}'"
+        story.activity.append({"timestamp": timestamp, "user": username, "action": activity_entry})
+        story.status = request.status
     
     # Handle tags
+    tags_value = None
     if isinstance(request.tags, list):
-        story.tags = ",".join(request.tags)
+        tags_value = ",".join(request.tags)
     elif isinstance(request.tags, str):
-        story.tags = request.tags
-    else:
-        story.tags = None
+        tags_value = request.tags
     
-    story.acceptance_criteria = request.acceptance_criteria or []
-    story.story_points = request.story_points
-    story.activity = request.activity or []
+    if story.tags != tags_value:
+        activity_entry = f"[{timestamp}] {username}: Updated tags"
+        story.activity.append({"timestamp": timestamp, "user": username, "action": activity_entry})
+        story.tags = tags_value
+    
+    # Track story points changes
+    if story.story_points != request.story_points:
+        old_points = story.story_points or "None"
+        new_points = request.story_points or "None"
+        activity_entry = f"[{timestamp}] {username}: Changed story points from {old_points} to {new_points}"
+        story.activity.append({"timestamp": timestamp, "user": username, "action": activity_entry})
+        story.story_points = request.story_points
+    
+    # Track acceptance criteria changes
+    if story.acceptance_criteria != (request.acceptance_criteria or []):
+        activity_entry = f"[{timestamp}] {username}: Updated acceptance criteria"
+        story.activity.append({"timestamp": timestamp, "user": username, "action": activity_entry})
+        story.acceptance_criteria = request.acceptance_criteria or []
+    
+    # If activity is provided in request (new comments), add them
+    if request.activity and len(request.activity) > len(story.activity):
+        # Only add new activities that weren't already tracked
+        for activity_item in request.activity:
+            if activity_item not in story.activity:
+                # Check if it's a manual comment (doesn't start with timestamp pattern)
+                if isinstance(activity_item, dict) and "text" in activity_item:
+                    new_entry = {
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "user": username,
+                        "action": f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {username}: {activity_item['text']}"
+                    }
+                    story.activity.append(new_entry)
     
     db.commit()
     db.refresh(story)
